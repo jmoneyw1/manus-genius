@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manus AI Platform</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/manus_style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-robot"></i>
+                    <h1>Manus AI Platform</h1>
+                </div>
+                <p class="tagline">AI-Powered Code Analysis & Solutions</p>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Step 1: Upload -->
+            <section id="upload-section" class="section active">
+                <div class="section-header">
+                    <h2><i class="fas fa-upload"></i> Upload Your Code</h2>
+                    <p>Upload individual files or a ZIP archive containing your project</p>
+                </div>
+
+                <div class="upload-area" id="upload-area">
+                    <div class="upload-content">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <h3>Drag & Drop Files Here</h3>
+                        <p>or click to browse</p>
+                        <div class="supported-formats">
+                            <span>Supported: .py, .js, .html, .css, .json, .zip, .md, .txt, and more</span>
+                        </div>
+                    </div>
+                    <input type="file" id="file-input" multiple accept=".py,.js,.html,.css,.json,.xml,.yaml,.yml,.md,.rst,.csv,.sql,.sh,.bat,.dockerfile,.zip,.tar,.gz,.java,.cpp,.c,.h,.php,.rb,.go,.rs,.txt">
+                </div>
+
+                <div id="file-list" class="file-list" style="display: none;">
+                    <h4><i class="fas fa-list"></i> Selected Files</h4>
+                    <div id="file-items"></div>
+                </div>
+
+                <button id="upload-btn" class="btn-primary" style="display: none;">
+                    <i class="fas fa-upload"></i> Upload Files
+                </button>
+
+                <div id="upload-progress" class="progress-section" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill"></div>
+                    </div>
+                    <p>Uploading and analyzing files...</p>
+                </div>
+            </section>
+
+            <!-- Step 2: Task Description -->
+            <section id="task-section" class="section">
+                <div class="section-header">
+                    <h2><i class="fas fa-tasks"></i> Describe Your Task</h2>
+                    <p>Tell the AI what you want to accomplish with your code</p>
+                </div>
+
+                <div class="project-overview" id="project-overview" style="display: none;">
+                    <h4><i class="fas fa-folder-open"></i> Project Overview</h4>
+                    <div class="overview-grid">
+                        <div class="overview-item">
+                            <span class="label">Files:</span>
+                            <span id="file-count">0</span>
+                        </div>
+                        <div class="overview-item">
+                            <span class="label">Size:</span>
+                            <span id="project-size">0 KB</span>
+                        </div>
+                        <div class="overview-item">
+                            <span class="label">Types:</span>
+                            <span id="file-types">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="task-input">
+                    <label for="task-description">
+                        <i class="fas fa-edit"></i> Task Description
+                    </label>
+                    <textarea 
+                        id="task-description" 
+                        placeholder="Describe what you want to accomplish. For example:&#10;&#10;• Fix the bug in my authentication system&#10;• Optimize the database queries for better performance&#10;• Add a new feature to handle file uploads&#10;• Review my code for security vulnerabilities&#10;• Refactor the code to follow best practices"
+                        rows="6"
+                    ></textarea>
+                </div>
+
+                <div class="task-examples">
+                    <h4><i class="fas fa-lightbulb"></i> Example Tasks</h4>
+                    <div class="example-grid">
+                        <div class="example-item" onclick="setTaskExample('Fix the authentication bug that prevents users from logging in')">
+                            <i class="fas fa-bug"></i>
+                            <span>Bug Fixes</span>
+                        </div>
+                        <div class="example-item" onclick="setTaskExample('Optimize the code for better performance and reduce loading times')">
+                            <i class="fas fa-tachometer-alt"></i>
+                            <span>Performance</span>
+                        </div>
+                        <div class="example-item" onclick="setTaskExample('Add a new feature to handle user file uploads with validation')">
+                            <i class="fas fa-plus-circle"></i>
+                            <span>New Features</span>
+                        </div>
+                        <div class="example-item" onclick="setTaskExample('Review the code for security vulnerabilities and best practices')">
+                            <i class="fas fa-shield-alt"></i>
+                            <span>Security Review</span>
+                        </div>
+                    </div>
+                </div>
+
+                <button id="process-btn" class="btn-primary" disabled>
+                    <i class="fas fa-magic"></i> Analyze with AI
+                </button>
+
+                <div id="process-progress" class="progress-section" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill"></div>
+                    </div>
+                    <p>AI is analyzing your code and generating solutions...</p>
+                </div>
+            </section>
+
+            <!-- Step 3: Results -->
+            <section id="results-section" class="section">
+                <div class="section-header">
+                    <h2><i class="fas fa-chart-line"></i> AI Analysis Results</h2>
+                    <p>Review the AI-generated solutions and recommendations</p>
+                </div>
+
+                <div id="results-content" style="display: none;">
+                    <!-- Analysis Overview -->
+                    <div class="results-overview">
+                        <div class="analysis-card">
+                            <div class="card-header">
+                                <i class="fas fa-brain"></i>
+                                <h4>Analysis Summary</h4>
+                            </div>
+                            <div class="card-content">
+                                <div class="metric-row">
+                                    <span class="metric-label">Task Type:</span>
+                                    <span id="task-type" class="metric-value">-</span>
+                                </div>
+                                <div class="metric-row">
+                                    <span class="metric-label">Main Language:</span>
+                                    <span id="main-language" class="metric-value">-</span>
+                                </div>
+                                <div class="metric-row">
+                                    <span class="metric-label">Complexity:</span>
+                                    <span id="complexity" class="metric-value">-</span>
+                                </div>
+                                <div class="metric-row">
+                                    <span class="metric-label">Files Analyzed:</span>
+                                    <span id="files-analyzed" class="metric-value">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI Explanation -->
+                    <div class="explanation-card">
+                        <div class="card-header">
+                            <i class="fas fa-comment-dots"></i>
+                            <h4>AI Explanation</h4>
+                        </div>
+                        <div class="card-content">
+                            <p id="ai-explanation">-</p>
+                        </div>
+                    </div>
+
+                    <!-- Recommendations -->
+                    <div class="recommendations-card">
+                        <div class="card-header">
+                            <i class="fas fa-list-check"></i>
+                            <h4>Recommendations</h4>
+                        </div>
+                        <div class="card-content">
+                            <ul id="recommendations-list"></ul>
+                        </div>
+                    </div>
+
+                    <!-- Code Changes -->
+                    <div class="code-changes-card">
+                        <div class="card-header">
+                            <i class="fas fa-code"></i>
+                            <h4>Suggested Code Changes</h4>
+                        </div>
+                        <div class="card-content">
+                            <div id="code-changes-list"></div>
+                        </div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="actions-section">
+                        <button id="download-btn" class="btn-secondary">
+                            <i class="fas fa-download"></i> Download Results
+                        </button>
+                        <button id="new-task-btn" class="btn-primary">
+                            <i class="fas fa-plus"></i> New Task
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Navigation -->
+        <nav class="step-nav">
+            <div class="step" id="step-1" class="active">
+                <div class="step-number">1</div>
+                <span>Upload</span>
+            </div>
+            <div class="step" id="step-2">
+                <div class="step-number">2</div>
+                <span>Describe</span>
+            </div>
+            <div class="step" id="step-3">
+                <div class="step-number">3</div>
+                <span>Results</span>
+            </div>
+        </nav>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>&copy; 2025 Manus AI Platform. Empowering developers with AI-driven solutions.</p>
+        </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+    <script src="{{ url_for('static', filename='js/manus_app.js') }}"></script>
+</body>
+</html>
+

@@ -1,0 +1,40 @@
+2025-06-12 04:02:51,147 - __main__ - INFO - Starting Manus Platform
+2025-06-12 04:02:56,674 - __main__ - INFO - Starting Manus Platform
+2025-06-12 04:02:56,686 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5001
+ * Running on http://169.254.0.21:5001
+2025-06-12 04:02:56,686 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-06-12 04:02:56,687 - werkzeug - INFO -  * Restarting with stat
+2025-06-12 04:02:56,831 - __main__ - INFO - Starting Manus Platform
+2025-06-12 04:02:56,839 - werkzeug - WARNING -  * Debugger is active!
+2025-06-12 04:02:56,839 - werkzeug - INFO -  * Debugger PIN: 491-791-309
+2025-06-12 04:03:28,699 - __main__ - INFO - Home page accessed
+2025-06-12 04:03:28,705 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 04:03:28] "GET / HTTP/1.1" 200 -
+2025-06-12 04:03:28,726 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 04:03:28] "GET /static/css/manus_style.css HTTP/1.1" 200 -
+2025-06-12 04:03:28,922 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 04:03:28] "GET /static/js/manus_app.js HTTP/1.1" 200 -
+2025-06-12 04:03:28,972 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 04:03:28] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+2025-06-12 06:51:13,440 - __main__ - INFO - Starting Manus Platform
+2025-06-12 06:51:13,720 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5001
+ * Running on http://10.2.0.2:5001
+2025-06-12 06:51:13,721 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-06-12 06:51:13,724 - werkzeug - INFO -  * Restarting with stat
+2025-06-12 06:51:14,626 - __main__ - INFO - Starting Manus Platform
+2025-06-12 06:51:14,658 - werkzeug - WARNING -  * Debugger is active!
+2025-06-12 06:51:14,712 - werkzeug - INFO -  * Debugger PIN: 129-437-201
+2025-06-12 06:52:19,555 - __main__ - INFO - Home page accessed
+2025-06-12 06:52:19,791 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 06:52:19] "GET / HTTP/1.1" 200 -
+2025-06-12 06:52:21,297 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 06:52:21] "GET /static/css/manus_style.css HTTP/1.1" 200 -
+2025-06-12 06:52:22,170 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 06:52:22] "GET /static/js/manus_app.js HTTP/1.1" 200 -
+2025-06-12 06:52:26,009 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 06:52:26] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+2025-06-12 06:56:12,300 - __main__ - INFO - Upload endpoint accessed
+2025-06-12 06:56:12,961 - __main__ - INFO - Upload completed in 0.66 seconds
+2025-06-12 06:56:12,990 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 06:56:12] "POST /api/upload HTTP/1.1" 200 -
+2025-06-12 06:57:11,207 - __main__ - INFO - Process endpoint accessed
+2025-06-12 06:57:11,208 - __main__ - INFO - Processing task for session 8cf9d259-14d9-4b31-ba1a-5bb157210464: Check for any bugs
+2025-06-12 06:57:11,260 - __main__ - INFO - Simulating AI processing for task: Check for any bugs
+2025-06-12 06:57:11,267 - __main__ - INFO - Processing completed in 0.06 seconds
+2025-06-12 06:57:11,274 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 06:57:11] "POST /api/process HTTP/1.1" 200 -
+2025-06-12 06:57:36,477 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 06:57:36] "GET /api/download/8cf9d259-14d9-4b31-ba1a-5bb157210464 HTTP/1.1" 200 -
