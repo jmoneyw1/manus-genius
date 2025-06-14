@@ -1,0 +1,42 @@
+{
+  "name": "manus-ai-platform",
+  "version": "2.0.0",
+  "description": "AI-powered code analysis and solutions platform",
+  "main": "wsgi.py",
+  "scripts": {
+    "start": "./start.sh",
+    "dev": "python app.py",
+    "build": "./build.sh",
+    "test": "python -m pytest tests/",
+    "lint": "flake8 .",
+    "format": "black ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/manus-platform.git"
+  },
+  "keywords": [
+    "ai",
+    "code-analysis",
+    "openai",
+    "flask",
+    "python",
+    "developer-tools"
+  ],
+  "author": "Manus AI",
+  "license": "MIT",
+  "engines": {
+    "python": ">=3.8"
+  },
+  "render": {
+    "buildCommand": "./build.sh",
+    "startCommand": "./start.sh",
+    "healthCheckPath": "/api/health",
+    "env": {
+      "ENVIRONMENT": "production",
+      "PORT": "5001",
+      "WORKERS": "4"
+    }
+  }
+}
+

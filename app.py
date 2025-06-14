@@ -1,217 +1,597 @@
-from flask import Flask, request, jsonify, render_template, send_file
-from flask_cors import CORS
+#!/usr/bin/env python3
+"""
+Manus AI Platform - Production Flask Application
+Optimized for production deployment with Gunicorn
+"""
+
 import os
-import json
+import sys
+import asyncio
 import logging
-import datetime
-import time
-import zipfile
-import shutil
-from pathlib import Path
+from flask import Flask, request, jsonify, render_template, send_file, Response
+from flask_cors import CORS
 import uuid
-import openai
-from werkzeug.utils import secure_filename
+import time
+import datetime
 import threading
+from pathlib import Path
+import tempfile
+import shutil
+from werkzeug.utils import secure_filename
+from werkzeug.exceptions import RequestEntityTooLarge
 
-# Configuration
-UPLOAD_FOLDER = "/tmp/manus_uploads"
-WORKSPACE_FOLDER = "/tmp/manus_workspace"
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-ALLOWED_EXTENSIONS = {
-    'txt', 'py', 'js', 'html', 'css', 'json', 'xml', 'yaml', 'yml',
-    'md', 'rst', 'csv', 'sql', 'sh', 'bat', 'dockerfile', 'zip',
-    'tar', 'gz', 'java', 'cpp', 'c', 'h', 'php', 'rb', 'go', 'rs'
-}
+# Import our modules
+from config import Config
+from file_handler import FileHandler
+from openai_service import OpenAIService
 
-# Setup
+# Initialize configuration and logging
+Config.init_directories()
+logger = Config.setup_logging()
+
+# Create Flask app
 app = Flask(__name__)
-CORS(app)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
+app.config.from_object(Config)
 
-# Logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("manus_platform.log"),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+# Enable CORS
+CORS(app, origins="*", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 
-# Ensure workspace directories exist
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(WORKSPACE_FOLDER, exist_ok=True)
+# Initialize services
+file_handler = FileHandler()
+openai_service = OpenAIService()
 
-# Set OpenAI key
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Global session storage (in production, use Redis or database)
+active_sessions = {}
+session_lock = threading.Lock()
 
-# Utility Functions
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+class SessionManager:
+    """Manage user sessions and cleanup"""
+    
+    def __init__(self):
+        self.sessions = {}
+        self.cleanup_thread = None
+        self.start_cleanup_thread()
+    
+    def create_session(self) -> str:
+        """Create new session"""
+        session_id = str(uuid.uuid4())
+        session_data = {
+            'id': session_id,
+            'created_at': time.time(),
+            'last_activity': time.time(),
+            'workspace_path': os.path.join(Config.WORKSPACE_FOLDER, session_id),
+            'status': 'active'
+        }
+        
+        with session_lock:
+            self.sessions[session_id] = session_data
+        
+        # Create workspace directory
+        os.makedirs(session_data['workspace_path'], exist_ok=True)
+        
+        logger.info(f"Created session: {session_id}")
+        return session_id
+    
+    def get_session(self, session_id: str) -> dict:
+        """Get session data"""
+        with session_lock:
+            session = self.sessions.get(session_id)
+            if session:
+                session['last_activity'] = time.time()
+            return session
+    
+    def cleanup_expired_sessions(self):
+        """Clean up expired sessions"""
+        current_time = time.time()
+        expired_sessions = []
+        
+        with session_lock:
+            for session_id, session_data in self.sessions.items():
+                if current_time - session_data['last_activity'] > Config.SESSION_TIMEOUT:
+                    expired_sessions.append(session_id)
+        
+        for session_id in expired_sessions:
+            self.remove_session(session_id)
+    
+    def remove_session(self, session_id: str):
+        """Remove session and cleanup files"""
+        with session_lock:
+            session_data = self.sessions.pop(session_id, None)
+        
+        if session_data:
+            # Clean up workspace
+            workspace_path = session_data['workspace_path']
+            if os.path.exists(workspace_path):
+                try:
+                    shutil.rmtree(workspace_path)
+                    logger.info(f"Cleaned up session workspace: {session_id}")
+                except Exception as e:
+                    logger.error(f"Error cleaning up session {session_id}: {str(e)}")
+    
+    def start_cleanup_thread(self):
+        """Start background cleanup thread"""
+        def cleanup_worker():
+            while True:
+                try:
+                    self.cleanup_expired_sessions()
+                    time.sleep(Config.CLEANUP_INTERVAL)
+                except Exception as e:
+                    logger.error(f"Error in cleanup thread: {str(e)}")
+                    time.sleep(60)  # Wait 1 minute before retrying
+        
+        self.cleanup_thread = threading.Thread(target=cleanup_worker, daemon=True)
+        self.cleanup_thread.start()
+        logger.info("Started session cleanup thread")
 
-def extract_zip_file(zip_path, extract_to):
-    try:
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            total_size = sum(f.file_size for f in zip_ref.filelist)
-            if total_size > 100 * 1024 * 1024:
-                raise ValueError("ZIP file too large")
-            zip_ref.extractall(extract_to)
-        return True
-    except Exception as e:
-        logger.error(f"ZIP error: {e}")
-        return False
+# Initialize session manager
+session_manager = SessionManager()
 
-def read_file_content(file_path):
-    try:
-        if os.path.getsize(file_path) > 1024 * 1024:
-            return "[File too large]"
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return f.read()
-    except:
-        return "[Unreadable or binary file]"
+# Error handlers
+@app.errorhandler(RequestEntityTooLarge)
+def handle_file_too_large(e):
+    """Handle file too large error"""
+    max_size_mb = Config.MAX_CONTENT_LENGTH // (1024 * 1024)
+    return jsonify({
+        'status': 'error',
+        'message': f'File too large. Maximum size allowed: {max_size_mb}MB',
+        'error_code': 'FILE_TOO_LARGE'
+    }), 413
 
-def analyze_project_structure(session_path):
-    structure = {
-        "files": [],
-        "directories": [],
-        "total_files": 0,
-        "total_size": 0,
-        "file_types": {}
-    }
-    for root, dirs, files in os.walk(session_path):
-        for file in files:
-            path = os.path.join(root, file)
-            rel_path = os.path.relpath(path, session_path)
-            ext = Path(file).suffix.lower()
-            size = os.path.getsize(path)
+@app.errorhandler(500)
+def handle_internal_error(e):
+    """Handle internal server errors"""
+    logger.error(f"Internal server error: {str(e)}")
+    return jsonify({
+        'status': 'error',
+        'message': 'Internal server error occurred',
+        'error_code': 'INTERNAL_ERROR'
+    }), 500
 
-            structure["files"].append({"path": rel_path, "size": size, "type": ext})
-            structure["total_size"] += size
-            structure["total_files"] += 1
-            structure["file_types"][ext] = structure["file_types"].get(ext, 0) + 1
-
-    return structure
+@app.errorhandler(404)
+def handle_not_found(e):
+    """Handle not found errors"""
+    return jsonify({
+        'status': 'error',
+        'message': 'Resource not found',
+        'error_code': 'NOT_FOUND'
+    }), 404
 
 # Routes
 @app.route('/')
 def home():
-    return render_template("manus_index.html")
+    """Home page"""
+    logger.info("Home page accessed")
+    return render_template('manus_index.html')
 
 @app.route('/api/health')
-def health():
+def health_check():
+    """Health check endpoint"""
     return jsonify({
-        "status": "ok",
-        "timestamp": datetime.datetime.now().isoformat()
+        'status': 'healthy',
+        'timestamp': datetime.datetime.now().isoformat(),
+        'version': '2.0.0',
+        'sessions': len(session_manager.sessions),
+        'openai_configured': bool(Config.OPENAI_API_KEY)
     })
-
-@app.route('/ask', methods=['POST'])
-def ask():
-    prompt = request.json.get('prompt')
-    if not prompt:
-        return jsonify({'error': 'Missing prompt'}), 400
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You're a helpful AI coding assistant."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.4
-        )
-        return jsonify({'response': response['choices'][0]['message']['content']})
-    except Exception as e:
-        logger.error(f"OpenAI error: {e}")
-        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/upload', methods=['POST'])
-def upload():
-    if 'files' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
+def upload_files():
+    """Enhanced file upload with support for multiple formats"""
+    start_time = time.time()
+    logger.info("Upload endpoint accessed")
+    
+    try:
+        # Create new session
+        session_id = session_manager.create_session()
+        session_data = session_manager.get_session(session_id)
+        workspace_path = session_data['workspace_path']
+        
+        # Check if files were uploaded
+        if 'files' not in request.files:
+            return jsonify({
+                'status': 'error',
+                'message': 'No files uploaded',
+                'error_code': 'NO_FILES'
+            }), 400
+        
+        files = request.files.getlist('files')
+        if not files or all(f.filename == '' for f in files):
+            return jsonify({
+                'status': 'error',
+                'message': 'No files selected',
+                'error_code': 'NO_FILES_SELECTED'
+            }), 400
+        
+        uploaded_files = []
+        extracted_files = []
+        errors = []
+        
+        for file in files:
+            if file.filename == '':
+                continue
+            
+            if not file_handler.is_allowed_file(file.filename):
+                errors.append(f"File type not supported: {file.filename}")
+                continue
+            
+            try:
+                # Secure filename
+                filename = secure_filename(file.filename)
+                if not filename:
+                    filename = f"file_{int(time.time())}"
+                
+                # Save file
+                file_path = os.path.join(workspace_path, filename)
+                file.save(file_path)
+                
+                file_size = os.path.getsize(file_path)
+                file_type = file_handler.get_file_type(filename)
+                
+                uploaded_files.append({
+                    'filename': filename,
+                    'original_name': file.filename,
+                    'size': file_size,
+                    'formatted_size': file_handler.format_file_size(file_size),
+                    'type': file_type
+                })
+                
+                # Extract archives
+                if file_handler.is_archive_file(filename):
+                    logger.info(f"Extracting archive: {filename}")
+                    success, error_msg, files_list = file_handler.extract_archive(
+                        file_path, workspace_path
+                    )
+                    
+                    if success:
+                        extracted_files.extend(files_list)
+                        # Remove the archive file after extraction
+                        os.remove(file_path)
+                        logger.info(f"Successfully extracted {len(files_list)} files from {filename}")
+                    else:
+                        errors.append(f"Failed to extract {filename}: {error_msg}")
+                
+            except Exception as e:
+                logger.error(f"Error processing file {file.filename}: {str(e)}")
+                errors.append(f"Error processing {file.filename}: {str(e)}")
+        
+        # Analyze project structure
+        project_structure = file_handler.analyze_project_structure(workspace_path)
+        
+        # Update session with project data
+        with session_lock:
+            session_manager.sessions[session_id].update({
+                'project_structure': project_structure,
+                'uploaded_files': uploaded_files,
+                'extracted_files': extracted_files
+            })
+        
+        end_time = time.time()
+        logger.info(f"Upload completed in {end_time - start_time:.2f} seconds")
+        
+        response_data = {
+            'status': 'success',
+            'session_id': session_id,
+            'uploaded_files': uploaded_files,
+            'extracted_files': extracted_files,
+            'project_structure': {
+                'total_files': project_structure['total_files'],
+                'total_size': project_structure['total_size'],
+                'formatted_size': file_handler.format_file_size(project_structure['total_size']),
+                'file_categories': project_structure['file_categories'],
+                'file_types': dict(list(project_structure['file_types'].items())[:10]),  # Top 10
+                'code_files_count': len(project_structure['code_files']),
+                'media_files_count': len(project_structure['media_files']),
+                'large_files_count': len(project_structure['large_files'])
+            },
+            'processing_time': round(end_time - start_time, 2)
+        }
+        
+        if errors:
+            response_data['warnings'] = errors
+        
+        return jsonify(response_data)
+    
+    except Exception as e:
+        end_time = time.time()
+        logger.exception(f"Error in upload endpoint after {end_time - start_time:.2f} seconds")
+        return jsonify({
+            'status': 'error',
+            'message': f'Upload failed: {str(e)}',
+            'error_code': 'UPLOAD_FAILED'
+        }), 500
 
-    session_id = str(uuid.uuid4())
-    session_path = os.path.join(WORKSPACE_FOLDER, session_id)
-    os.makedirs(session_path, exist_ok=True)
+@app.route('/api/analyze', methods=['POST'])
+def analyze_project():
+    """Analyze project with OpenAI (async)"""
+    start_time = time.time()
+    logger.info("Analyze endpoint accessed")
+    
+    try:
+        data = request.get_json()
+        
+        if not data or 'session_id' not in data or 'task_description' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing session_id or task_description',
+                'error_code': 'MISSING_PARAMETERS'
+            }), 400
+        
+        session_id = data['session_id']
+        task_description = data['task_description']
+        
+        # Validate session
+        session_data = session_manager.get_session(session_id)
+        if not session_data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid or expired session',
+                'error_code': 'INVALID_SESSION'
+            }), 400
+        
+        # Get project structure
+        project_structure = session_data.get('project_structure', {})
+        
+        # Start async analysis
+        def run_analysis():
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                result = loop.run_until_complete(
+                    openai_service.analyze_code_async(task_description, project_structure)
+                )
+                
+                # Store result in session
+                with session_lock:
+                    session_manager.sessions[session_id]['analysis_result'] = result
+                    session_manager.sessions[session_id]['analysis_status'] = 'completed'
+                
+                logger.info(f"Analysis completed for session {session_id}")
+                
+            except Exception as e:
+                logger.error(f"Error in async analysis: {str(e)}")
+                with session_lock:
+                    session_manager.sessions[session_id]['analysis_result'] = {
+                        'error': str(e)
+                    }
+                    session_manager.sessions[session_id]['analysis_status'] = 'failed'
+        
+        # Mark analysis as started
+        with session_lock:
+            session_manager.sessions[session_id]['analysis_status'] = 'running'
+            session_manager.sessions[session_id]['task_description'] = task_description
+        
+        # Start analysis in background thread
+        analysis_thread = threading.Thread(target=run_analysis, daemon=True)
+        analysis_thread.start()
+        
+        end_time = time.time()
+        logger.info(f"Analysis started in {end_time - start_time:.2f} seconds")
+        
+        return jsonify({
+            'status': 'success',
+            'session_id': session_id,
+            'message': 'Analysis started',
+            'analysis_status': 'running',
+            'processing_time': round(end_time - start_time, 2)
+        })
+    
+    except Exception as e:
+        end_time = time.time()
+        logger.exception(f"Error in analyze endpoint after {end_time - start_time:.2f} seconds")
+        return jsonify({
+            'status': 'error',
+            'message': f'Analysis failed to start: {str(e)}',
+            'error_code': 'ANALYSIS_START_FAILED'
+        }), 500
 
-    results = []
-    for file in request.files.getlist('files'):
-        if file.filename == '':
-            continue
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            filepath = os.path.join(session_path, filename)
-            file.save(filepath)
-            if filename.endswith('.zip'):
-                extract_dir = os.path.join(session_path, 'extracted')
-                os.makedirs(extract_dir, exist_ok=True)
-                if extract_zip_file(filepath, extract_dir):
-                    shutil.rmtree(filepath, ignore_errors=True)
-                    results.append(f"Extracted: {filename}")
-                else:
-                    results.append(f"Failed to extract: {filename}")
-            else:
-                results.append(f"Uploaded: {filename}")
-    structure = analyze_project_structure(session_path)
-    return jsonify({
-        "session_id": session_id,
-        "files": results,
-        "structure": structure
-    })
+@app.route('/api/status/<session_id>')
+def get_analysis_status(session_id):
+    """Get analysis status"""
+    try:
+        session_data = session_manager.get_session(session_id)
+        if not session_data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid or expired session',
+                'error_code': 'INVALID_SESSION'
+            }), 400
+        
+        analysis_status = session_data.get('analysis_status', 'not_started')
+        
+        response_data = {
+            'status': 'success',
+            'session_id': session_id,
+            'analysis_status': analysis_status
+        }
+        
+        if analysis_status == 'completed':
+            response_data['result'] = session_data.get('analysis_result', {})
+        elif analysis_status == 'failed':
+            response_data['error'] = session_data.get('analysis_result', {}).get('error', 'Unknown error')
+        
+        return jsonify(response_data)
+    
+    except Exception as e:
+        logger.exception(f"Error getting analysis status: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to get status: {str(e)}',
+            'error_code': 'STATUS_FAILED'
+        }), 500
 
-@app.route('/api/process', methods=['POST'])
-def process():
-    data = request.get_json()
-    session_id = data.get('session_id')
-    task = data.get('task_description')
-
-    session_path = os.path.join(WORKSPACE_FOLDER, session_id)
-    if not os.path.exists(session_path):
-        return jsonify({'error': 'Invalid session ID'}), 400
-
-    structure = analyze_project_structure(session_path)
-    simulated_response = {
-        "session_id": session_id,
-        "task": task,
-        "language": "Python" if ".py" in structure["file_types"] else "Unknown",
-        "suggestions": [
-            "Refactor large functions",
-            "Add error handling",
-            "Write unit tests"
-        ]
-    }
-    return jsonify(simulated_response)
+@app.route('/api/stream/<session_id>')
+def stream_analysis(session_id):
+    """Stream analysis results (Server-Sent Events)"""
+    try:
+        session_data = session_manager.get_session(session_id)
+        if not session_data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid or expired session'
+            }), 400
+        
+        def generate():
+            try:
+                # Get project structure and task
+                project_structure = session_data.get('project_structure', {})
+                task_description = session_data.get('task_description', '')
+                
+                # Stream analysis
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                async def stream_wrapper():
+                    async for chunk in openai_service.stream_analysis(task_description, project_structure):
+                        yield f"data: {chunk}\n\n"
+                
+                for chunk in loop.run_until_complete(stream_wrapper()):
+                    yield chunk
+                
+                yield "data: [DONE]\n\n"
+                
+            except Exception as e:
+                logger.error(f"Error in streaming: {str(e)}")
+                yield f"data: Error: {str(e)}\n\n"
+        
+        return Response(generate(), mimetype='text/plain')
+    
+    except Exception as e:
+        logger.exception(f"Error in stream endpoint: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Streaming failed: {str(e)}'
+        }), 500
 
 @app.route('/api/download/<session_id>')
-def download(session_id):
-    session_path = os.path.join(WORKSPACE_FOLDER, session_id)
-    if not os.path.exists(session_path):
-        return jsonify({'error': 'Invalid session ID'}), 400
+def download_results(session_id):
+    """Download session results as ZIP"""
+    try:
+        session_data = session_manager.get_session(session_id)
+        if not session_data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid or expired session'
+            }), 400
+        
+        workspace_path = session_data['workspace_path']
+        if not os.path.exists(workspace_path):
+            return jsonify({
+                'status': 'error',
+                'message': 'Session workspace not found'
+            }), 404
+        
+        # Create ZIP file
+        zip_filename = f"manus_result_{session_id}.zip"
+        zip_path = os.path.join(tempfile.gettempdir(), zip_filename)
+        
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for root, dirs, files in os.walk(workspace_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, workspace_path)
+                    zipf.write(file_path, arcname)
+        
+        return send_file(
+            zip_path,
+            as_attachment=True,
+            download_name=zip_filename,
+            mimetype='application/zip'
+        )
+    
+    except Exception as e:
+        logger.exception(f"Error in download endpoint: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Download failed: {str(e)}'
+        }), 500
 
-    zip_path = os.path.join(UPLOAD_FOLDER, f"{session_id}.zip")
-    with zipfile.ZipFile(zip_path, 'w') as zipf:
-        for root, _, files in os.walk(session_path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                arcname = os.path.relpath(file_path, session_path)
-                zipf.write(file_path, arcname)
-    return send_file(zip_path, as_attachment=True)
+@app.route('/api/sessions/<session_id>/files')
+def get_session_files(session_id):
+    """Get detailed file listing for a session"""
+    try:
+        session_data = session_manager.get_session(session_id)
+        if not session_data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid or expired session'
+            }), 400
+        
+        project_structure = session_data.get('project_structure', {})
+        
+        return jsonify({
+            'status': 'success',
+            'session_id': session_id,
+            'project_structure': project_structure
+        })
+    
+    except Exception as e:
+        logger.exception(f"Error getting session files: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to get files: {str(e)}'
+        }), 500
 
-# Clean up old sessions every 30 min
-def cleanup_sessions():
-    while True:
-        time.sleep(1800)
-        now = time.time()
-        for dir in os.listdir(WORKSPACE_FOLDER):
-            path = os.path.join(WORKSPACE_FOLDER, dir)
-            if os.path.isdir(path) and now - os.path.getctime(path) > 3600:
-                shutil.rmtree(path)
-                logger.info(f"Cleaned up: {path}")
+@app.route('/api/sessions/<session_id>/file/<path:file_path>')
+def get_file_content(session_id, file_path):
+    """Get content of a specific file"""
+    try:
+        session_data = session_manager.get_session(session_id)
+        if not session_data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid or expired session'
+            }), 400
+        
+        workspace_path = session_data['workspace_path']
+        full_file_path = os.path.join(workspace_path, file_path)
+        
+        # Security check
+        if not full_file_path.startswith(workspace_path):
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid file path'
+            }), 400
+        
+        if not os.path.exists(full_file_path):
+            return jsonify({
+                'status': 'error',
+                'message': 'File not found'
+            }), 404
+        
+        content = file_handler.read_file_content(full_file_path)
+        file_size = os.path.getsize(full_file_path)
+        
+        return jsonify({
+            'status': 'success',
+            'file_path': file_path,
+            'content': content,
+            'size': file_size,
+            'formatted_size': file_handler.format_file_size(file_size),
+            'type': file_handler.get_file_type(file_path)
+        })
+    
+    except Exception as e:
+        logger.exception(f"Error getting file content: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to get file content: {str(e)}'
+        }), 500
 
-cleanup_thread = threading.Thread(target=cleanup_sessions, daemon=True)
-cleanup_thread.start()
+# Legacy endpoint for backward compatibility
+@app.route('/api/process', methods=['POST'])
+def process_task_legacy():
+    """Legacy process endpoint - redirects to new analyze endpoint"""
+    return analyze_project()
 
-# Launch
 if __name__ == '__main__':
-    logger.info("Manus-Genius is live.")
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    logger.info("Starting Manus AI Platform in development mode")
+    app.run(
+        host=Config.HOST,
+        port=Config.PORT,
+        debug=Config.DEBUG
+    )
+else:
+    # Production mode with Gunicorn
+    logger.info("Manus AI Platform initialized for production")
+

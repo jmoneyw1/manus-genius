@@ -1,227 +1,361 @@
-// Manus AI Platform JavaScript
+// Manus AI Platform - Enhanced Production JavaScript
+// Real-time features, file explorer, and improved error handling
+
 class ManusApp {
     constructor() {
         this.currentStep = 1;
         this.sessionId = null;
-        this.selectedFiles = [];
+        this.uploadedFiles = [];
         this.projectStructure = null;
+        this.analysisResult = null;
+        this.sessionStartTime = Date.now();
+        this.notificationTimeout = 5000;
         
-        this.initializeEventListeners();
-        this.updateStepNavigation();
+        this.init();
     }
 
-    initializeEventListeners() {
-        // File upload handling
-        const uploadArea = document.getElementById('upload-area');
+    init() {
+        this.setupEventListeners();
+        this.setupDragAndDrop();
+        this.setupFileExplorer();
+        this.setupNotificationSystem();
+        this.startSessionTimer();
+        this.checkAPIHealth();
+    }
+
+    // Event Listeners
+    setupEventListeners() {
+        // File input
         const fileInput = document.getElementById('file-input');
+        const uploadArea = document.getElementById('upload-area');
+        const uploadBtn = document.getElementById('upload-btn');
+        const clearFilesBtn = document.getElementById('clear-files');
         
-        uploadArea.addEventListener('click', () => fileInput.click());
-        uploadArea.addEventListener('dragover', this.handleDragOver.bind(this));
-        uploadArea.addEventListener('dragleave', this.handleDragLeave.bind(this));
-        uploadArea.addEventListener('drop', this.handleDrop.bind(this));
-        
-        fileInput.addEventListener('change', this.handleFileSelect.bind(this));
-        
-        // Upload button
-        document.getElementById('upload-btn').addEventListener('click', this.uploadFiles.bind(this));
-        
+        fileInput?.addEventListener('change', (e) => this.handleFileSelect(e));
+        uploadArea?.addEventListener('click', () => fileInput?.click());
+        uploadBtn?.addEventListener('click', () => this.uploadFiles());
+        clearFilesBtn?.addEventListener('click', () => this.clearFiles());
+
         // Task description
         const taskDescription = document.getElementById('task-description');
-        taskDescription.addEventListener('input', this.validateTaskForm.bind(this));
+        const analyzeBtn = document.getElementById('analyze-btn');
         
-        // Process button
-        document.getElementById('process-btn').addEventListener('click', this.processTask.bind(this));
+        taskDescription?.addEventListener('input', (e) => this.handleTaskInput(e));
+        analyzeBtn?.addEventListener('click', () => this.startAnalysis());
+
+        // File explorer
+        const toggleExplorer = document.getElementById('toggle-file-explorer');
+        const closeExplorer = document.getElementById('close-file-explorer');
+        const fileSearch = document.getElementById('file-search');
+        const listView = document.getElementById('list-view');
+        const gridView = document.getElementById('grid-view');
         
-        // Action buttons
-        document.getElementById('download-btn').addEventListener('click', this.downloadResults.bind(this));
-        document.getElementById('new-task-btn').addEventListener('click', this.startNewTask.bind(this));
+        toggleExplorer?.addEventListener('click', () => this.toggleFileExplorer());
+        closeExplorer?.addEventListener('click', () => this.closeFileExplorer());
+        fileSearch?.addEventListener('input', (e) => this.searchFiles(e.target.value));
+        listView?.addEventListener('click', () => this.setViewMode('list'));
+        gridView?.addEventListener('click', () => this.setViewMode('grid'));
+
+        // Results actions
+        const downloadBtn = document.getElementById('download-btn');
+        const newAnalysisBtn = document.getElementById('new-analysis-btn');
+        const exportResults = document.getElementById('export-results');
+        
+        downloadBtn?.addEventListener('click', () => this.downloadResults());
+        newAnalysisBtn?.addEventListener('click', () => this.startNewAnalysis());
+        exportResults?.addEventListener('click', () => this.exportResults());
+
+        // Step navigation
+        document.querySelectorAll('.step').forEach((step, index) => {
+            step.addEventListener('click', () => this.goToStep(index + 1));
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => this.handleKeyboardShortcuts(e));
     }
 
-    handleDragOver(e) {
-        e.preventDefault();
-        document.getElementById('upload-area').classList.add('dragover');
+    // Drag and Drop
+    setupDragAndDrop() {
+        const uploadArea = document.getElementById('upload-area');
+        
+        if (!uploadArea) return;
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, this.preventDefaults, false);
+            document.body.addEventListener(eventName, this.preventDefaults, false);
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => this.highlight(uploadArea), false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => this.unhighlight(uploadArea), false);
+        });
+
+        uploadArea.addEventListener('drop', (e) => this.handleDrop(e), false);
     }
 
-    handleDragLeave(e) {
+    preventDefaults(e) {
         e.preventDefault();
-        document.getElementById('upload-area').classList.remove('dragover');
+        e.stopPropagation();
+    }
+
+    highlight(element) {
+        element.classList.add('dragover');
+    }
+
+    unhighlight(element) {
+        element.classList.remove('dragover');
     }
 
     handleDrop(e) {
-        e.preventDefault();
-        document.getElementById('upload-area').classList.remove('dragover');
-        
-        const files = Array.from(e.dataTransfer.files);
-        this.processSelectedFiles(files);
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        this.handleFiles(files);
     }
 
+    // File Handling
     handleFileSelect(e) {
-        const files = Array.from(e.target.files);
-        this.processSelectedFiles(files);
+        this.handleFiles(e.target.files);
     }
 
-    processSelectedFiles(files) {
-        this.selectedFiles = files.filter(file => this.isValidFile(file));
+    handleFiles(files) {
+        const fileArray = Array.from(files);
         
-        if (this.selectedFiles.length === 0) {
-            this.showMessage('No valid files selected. Please select supported file types.', 'error');
+        // Validate files
+        const validFiles = fileArray.filter(file => this.validateFile(file));
+        
+        if (validFiles.length === 0) {
+            this.showNotification('No valid files selected', 'warning');
             return;
         }
+
+        // Add to uploaded files
+        this.uploadedFiles = [...this.uploadedFiles, ...validFiles];
+        this.updateFileList();
+        this.updateUploadButton();
         
-        this.displaySelectedFiles();
-        document.getElementById('upload-btn').style.display = 'block';
+        this.showNotification(`${validFiles.length} file(s) added`, 'success');
     }
 
-    isValidFile(file) {
+    validateFile(file) {
+        const maxSize = 500 * 1024 * 1024; // 500MB
         const allowedExtensions = [
-            'py', 'js', 'html', 'css', 'json', 'xml', 'yaml', 'yml', 
-            'md', 'rst', 'csv', 'sql', 'sh', 'bat', 'dockerfile', 'zip', 
-            'tar', 'gz', 'java', 'cpp', 'c', 'h', 'php', 'rb', 'go', 'rs', 'txt'
+            'py', 'js', 'ts', 'jsx', 'tsx', 'html', 'css', 'scss', 'sass', 'less',
+            'java', 'cpp', 'c', 'h', 'hpp', 'cs', 'php', 'rb', 'go', 'rs', 'swift',
+            'kt', 'scala', 'clj', 'hs', 'ml', 'fs', 'vb', 'pas', 'pl', 'r', 'lua',
+            'json', 'xml', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf',
+            'csv', 'tsv', 'sql', 'db', 'sqlite', 'sqlite3',
+            'md', 'rst', 'txt', 'rtf', 'tex', 'adoc', 'org',
+            'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd',
+            'dockerfile', 'makefile', 'cmake', 'gradle', 'maven',
+            'zip', 'tar', 'gz', 'bz2', 'xz', '7z', 'rar',
+            'wav', 'mp3', 'm4a', 'flac', 'ogg', 'aac',
+            'mp4', 'mov', 'avi', 'mkv', 'webm', 'flv',
+            'jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'webp', 'svg',
+            'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'
         ];
-        
-        const extension = file.name.split('.').pop().toLowerCase();
-        return allowedExtensions.includes(extension);
+
+        // Check file size
+        if (file.size > maxSize) {
+            this.showNotification(`File "${file.name}" is too large (max 500MB)`, 'error');
+            return false;
+        }
+
+        // Check file extension
+        const extension = file.name.split('.').pop()?.toLowerCase();
+        if (!extension || !allowedExtensions.includes(extension)) {
+            this.showNotification(`File type "${extension}" is not supported`, 'warning');
+            return false;
+        }
+
+        return true;
     }
 
-    displaySelectedFiles() {
+    updateFileList() {
         const fileList = document.getElementById('file-list');
         const fileItems = document.getElementById('file-items');
+        const fileCountSummary = document.getElementById('file-count-summary');
+        const fileSizeSummary = document.getElementById('file-size-summary');
         
+        if (!fileList || !fileItems) return;
+
+        if (this.uploadedFiles.length === 0) {
+            fileList.style.display = 'none';
+            return;
+        }
+
+        fileList.style.display = 'block';
         fileItems.innerHTML = '';
-        
-        this.selectedFiles.forEach((file, index) => {
-            const fileItem = document.createElement('div');
-            fileItem.className = 'file-item';
-            
-            const extension = file.name.split('.').pop().toLowerCase();
-            const fileSize = this.formatFileSize(file.size);
-            
-            fileItem.innerHTML = `
-                <div class="file-info">
-                    <div class="file-icon ${extension}">${extension.toUpperCase()}</div>
-                    <div class="file-details">
-                        <h5>${file.name}</h5>
-                        <div class="file-size">${fileSize}</div>
-                    </div>
-                </div>
-                <button class="file-remove" onclick="manusApp.removeFile(${index})">
-                    <i class="fas fa-times"></i>
-                </button>
-            `;
-            
+
+        let totalSize = 0;
+        this.uploadedFiles.forEach((file, index) => {
+            totalSize += file.size;
+            const fileItem = this.createFileItem(file, index);
             fileItems.appendChild(fileItem);
         });
+
+        // Update summary
+        if (fileCountSummary) {
+            fileCountSummary.textContent = `${this.uploadedFiles.length} file${this.uploadedFiles.length !== 1 ? 's' : ''}`;
+        }
+        if (fileSizeSummary) {
+            fileSizeSummary.textContent = this.formatFileSize(totalSize);
+        }
+    }
+
+    createFileItem(file, index) {
+        const item = document.createElement('div');
+        item.className = 'file-item';
         
-        fileList.style.display = 'block';
+        const fileType = this.getFileType(file.name);
+        const icon = this.getFileIcon(fileType);
+        
+        item.innerHTML = `
+            <div class="file-icon ${fileType}">
+                <i class="${icon}"></i>
+            </div>
+            <div class="file-info">
+                <div class="file-name">${file.name}</div>
+                <div class="file-details">
+                    <span>${this.formatFileSize(file.size)}</span>
+                    <span>${fileType}</span>
+                    <span>${new Date(file.lastModified).toLocaleDateString()}</span>
+                </div>
+            </div>
+            <button class="file-remove" onclick="app.removeFile(${index})">
+                <i class="fas fa-times"></i>
+            </button>
+        `;
+        
+        return item;
     }
 
     removeFile(index) {
-        this.selectedFiles.splice(index, 1);
-        
-        if (this.selectedFiles.length === 0) {
-            document.getElementById('file-list').style.display = 'none';
-            document.getElementById('upload-btn').style.display = 'none';
+        this.uploadedFiles.splice(index, 1);
+        this.updateFileList();
+        this.updateUploadButton();
+        this.showNotification('File removed', 'info');
+    }
+
+    clearFiles() {
+        this.uploadedFiles = [];
+        this.updateFileList();
+        this.updateUploadButton();
+        this.showNotification('All files cleared', 'info');
+    }
+
+    updateUploadButton() {
+        const uploadBtn = document.getElementById('upload-btn');
+        if (!uploadBtn) return;
+
+        if (this.uploadedFiles.length > 0) {
+            uploadBtn.style.display = 'block';
+            uploadBtn.disabled = false;
         } else {
-            this.displaySelectedFiles();
+            uploadBtn.style.display = 'none';
         }
     }
 
-    formatFileSize(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
-
+    // File Upload
     async uploadFiles() {
-        if (this.selectedFiles.length === 0) {
-            this.showMessage('Please select files to upload.', 'error');
+        if (this.uploadedFiles.length === 0) {
+            this.showNotification('No files to upload', 'warning');
             return;
         }
 
-        const uploadBtn = document.getElementById('upload-btn');
-        const progressSection = document.getElementById('upload-progress');
-        
-        // Show progress
-        uploadBtn.disabled = true;
-        uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
-        progressSection.style.display = 'block';
-        
+        this.showLoading('Uploading files...');
+        this.showUploadProgress();
+
+        const formData = new FormData();
+        this.uploadedFiles.forEach(file => {
+            formData.append('files', file);
+        });
+
         try {
-            const formData = new FormData();
-            this.selectedFiles.forEach(file => {
-                formData.append('files', file);
-            });
+            const startTime = Date.now();
             
             const response = await fetch('/api/upload', {
                 method: 'POST',
                 body: formData
             });
+
+            const result = await response.json();
             
-            const data = await response.json();
-            
-            if (data.status === 'success') {
-                this.sessionId = data.session_id;
-                this.projectStructure = data.project_structure;
+            if (result.status === 'success') {
+                this.sessionId = result.session_id;
+                this.projectStructure = result.project_structure;
                 
-                this.showMessage(`Successfully uploaded ${data.uploaded_files.length} files!`, 'success');
-                this.updateProjectOverview();
+                this.hideLoading();
+                this.hideUploadProgress();
+                this.updateProjectOverview(result);
                 this.goToStep(2);
+                
+                this.showNotification('Files uploaded successfully!', 'success');
+                
+                // Update header stats
+                this.updateHeaderStats();
+                
             } else {
-                throw new Error(data.message || 'Upload failed');
+                throw new Error(result.message || 'Upload failed');
             }
+            
         } catch (error) {
             console.error('Upload error:', error);
-            this.showMessage(`Upload failed: ${error.message}`, 'error');
-        } finally {
-            uploadBtn.disabled = false;
-            uploadBtn.innerHTML = '<i class="fas fa-upload"></i> Upload Files';
+            this.hideLoading();
+            this.hideUploadProgress();
+            this.showNotification(`Upload failed: ${error.message}`, 'error');
+        }
+    }
+
+    showUploadProgress() {
+        const progressSection = document.getElementById('upload-progress');
+        if (progressSection) {
+            progressSection.style.display = 'block';
+            this.animateProgress('upload-progress-fill', 0, 100, 3000);
+        }
+    }
+
+    hideUploadProgress() {
+        const progressSection = document.getElementById('upload-progress');
+        if (progressSection) {
             progressSection.style.display = 'none';
         }
     }
 
-    updateProjectOverview() {
-        if (!this.projectStructure) return;
+    // Task Input
+    handleTaskInput(e) {
+        const charCount = document.getElementById('char-count');
+        const analyzeBtn = document.getElementById('analyze-btn');
         
-        const overview = document.getElementById('project-overview');
-        document.getElementById('file-count').textContent = this.projectStructure.total_files;
-        document.getElementById('project-size').textContent = this.formatFileSize(this.projectStructure.total_size);
+        const length = e.target.value.length;
+        const maxLength = 2000;
         
-        const fileTypes = Object.keys(this.projectStructure.file_types).slice(0, 3).join(', ');
-        document.getElementById('file-types').textContent = fileTypes || 'Various';
+        if (charCount) {
+            charCount.textContent = length;
+            charCount.style.color = length > maxLength ? 'var(--error-color)' : 'var(--text-muted)';
+        }
         
-        overview.style.display = 'block';
-        this.validateTaskForm();
+        if (analyzeBtn) {
+            analyzeBtn.disabled = length === 0 || length > maxLength || !this.sessionId;
+        }
     }
 
-    validateTaskForm() {
-        const taskDescription = document.getElementById('task-description').value.trim();
-        const processBtn = document.getElementById('process-btn');
-        
-        processBtn.disabled = !taskDescription || !this.sessionId;
-    }
-
-    async processTask() {
-        const taskDescription = document.getElementById('task-description').value.trim();
+    // Analysis
+    async startAnalysis() {
+        const taskDescription = document.getElementById('task-description')?.value;
         
         if (!taskDescription || !this.sessionId) {
-            this.showMessage('Please provide a task description.', 'error');
+            this.showNotification('Please provide a task description', 'warning');
             return;
         }
 
-        const processBtn = document.getElementById('process-btn');
-        const progressSection = document.getElementById('process-progress');
-        
-        // Show progress
-        processBtn.disabled = true;
-        processBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
-        progressSection.style.display = 'block';
-        
+        this.showLoading('Starting AI analysis...');
+        this.showAnalysisProgress();
+
         try {
-            const response = await fetch('/api/process', {
+            const response = await fetch('/api/analyze', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -231,106 +365,659 @@ class ManusApp {
                     task_description: taskDescription
                 })
             });
+
+            const result = await response.json();
             
-            const data = await response.json();
-            
-            if (data.status === 'success') {
-                this.displayResults(data.solution);
-                this.goToStep(3);
+            if (result.status === 'success') {
+                this.hideLoading();
+                this.showNotification('Analysis started!', 'success');
+                this.pollAnalysisStatus();
             } else {
-                throw new Error(data.message || 'Processing failed');
+                throw new Error(result.message || 'Analysis failed to start');
             }
+            
         } catch (error) {
-            console.error('Processing error:', error);
-            this.showMessage(`Processing failed: ${error.message}`, 'error');
-        } finally {
-            processBtn.disabled = false;
-            processBtn.innerHTML = '<i class="fas fa-magic"></i> Analyze with AI';
+            console.error('Analysis error:', error);
+            this.hideLoading();
+            this.hideAnalysisProgress();
+            this.showNotification(`Analysis failed: ${error.message}`, 'error');
+        }
+    }
+
+    async pollAnalysisStatus() {
+        const pollInterval = 2000; // 2 seconds
+        
+        const poll = async () => {
+            try {
+                const response = await fetch(`/api/status/${this.sessionId}`);
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    const analysisStatus = result.analysis_status;
+                    
+                    this.updateAnalysisProgress(analysisStatus);
+                    
+                    if (analysisStatus === 'completed') {
+                        this.analysisResult = result.result;
+                        this.hideLoading();
+                        this.hideAnalysisProgress();
+                        this.displayResults(result.result);
+                        this.goToStep(3);
+                        this.showNotification('Analysis completed!', 'success');
+                        return;
+                    } else if (analysisStatus === 'failed') {
+                        throw new Error(result.error || 'Analysis failed');
+                    }
+                    
+                    // Continue polling
+                    setTimeout(poll, pollInterval);
+                } else {
+                    throw new Error(result.message || 'Failed to get analysis status');
+                }
+                
+            } catch (error) {
+                console.error('Polling error:', error);
+                this.hideLoading();
+                this.hideAnalysisProgress();
+                this.showNotification(`Analysis error: ${error.message}`, 'error');
+            }
+        };
+        
+        poll();
+    }
+
+    showAnalysisProgress() {
+        const progressSection = document.getElementById('analyze-progress');
+        if (progressSection) {
+            progressSection.style.display = 'block';
+            this.animateAnalysisSteps();
+        }
+    }
+
+    hideAnalysisProgress() {
+        const progressSection = document.getElementById('analyze-progress');
+        if (progressSection) {
             progressSection.style.display = 'none';
         }
     }
 
-    displayResults(solution) {
-        const resultsContent = document.getElementById('results-content');
+    updateAnalysisProgress(status) {
+        const progressFill = document.getElementById('analyze-progress-fill');
+        const analyzeStatus = document.getElementById('analyze-status');
+        const analyzePercentage = document.getElementById('analyze-percentage');
         
-        // Update analysis summary
-        document.getElementById('task-type').textContent = solution.analysis.task_type || 'General';
-        document.getElementById('main-language').textContent = solution.analysis.main_language || 'Mixed';
-        document.getElementById('complexity').textContent = solution.analysis.complexity || 'Medium';
-        document.getElementById('files-analyzed').textContent = solution.analysis.files_analyzed || '0';
+        let percentage = 0;
+        let statusText = 'Starting analysis...';
         
-        // Update explanation
-        document.getElementById('ai-explanation').textContent = solution.explanation || 'Analysis completed.';
+        switch (status) {
+            case 'running':
+                percentage = 50;
+                statusText = 'AI analysis in progress...';
+                break;
+            case 'completed':
+                percentage = 100;
+                statusText = 'Analysis completed!';
+                break;
+            case 'failed':
+                percentage = 0;
+                statusText = 'Analysis failed';
+                break;
+        }
         
-        // Update recommendations
-        const recommendationsList = document.getElementById('recommendations-list');
-        recommendationsList.innerHTML = '';
-        
-        solution.recommendations.forEach(recommendation => {
-            const li = document.createElement('li');
-            li.textContent = recommendation;
-            recommendationsList.appendChild(li);
-        });
-        
-        // Update code changes
-        const codeChangesList = document.getElementById('code-changes-list');
-        codeChangesList.innerHTML = '';
-        
-        solution.code_changes.forEach(change => {
-            const changeDiv = document.createElement('div');
-            changeDiv.className = 'code-change';
-            
-            changeDiv.innerHTML = `
-                <div class="code-change-header">
-                    <h5>${change.file}</h5>
-                    <p>${change.description}</p>
-                </div>
-                <div class="code-change-content">
-                    <pre><code class="language-${this.getLanguageFromFile(change.file)}">${this.escapeHtml(change.code)}</code></pre>
-                </div>
-            `;
-            
-            codeChangesList.appendChild(changeDiv);
-        });
-        
-        // Show results
-        resultsContent.style.display = 'block';
-        
-        // Highlight code
-        if (window.Prism) {
-            Prism.highlightAll();
+        if (progressFill) {
+            progressFill.style.width = `${percentage}%`;
+        }
+        if (analyzeStatus) {
+            analyzeStatus.textContent = statusText;
+        }
+        if (analyzePercentage) {
+            analyzePercentage.textContent = `${percentage}%`;
         }
     }
 
+    animateAnalysisSteps() {
+        const steps = document.querySelectorAll('.step-item');
+        let currentStep = 0;
+        
+        const animateStep = () => {
+            if (currentStep < steps.length) {
+                steps[currentStep].classList.add('active');
+                
+                if (currentStep > 0) {
+                    steps[currentStep - 1].classList.remove('active');
+                    steps[currentStep - 1].classList.add('completed');
+                }
+                
+                currentStep++;
+                setTimeout(animateStep, 1500);
+            }
+        };
+        
+        animateStep();
+    }
+
+    // Results Display
+    displayResults(result) {
+        const resultsContent = document.getElementById('results-content');
+        if (!resultsContent) return;
+
+        resultsContent.style.display = 'block';
+
+        // Update analysis metrics
+        this.updateAnalysisMetrics(result.analysis || {});
+        
+        // Update summary
+        this.updateSummary(result.summary || 'No summary available');
+        
+        // Update recommendations
+        this.updateRecommendations(result.recommendations || []);
+        
+        // Update code changes
+        this.updateCodeChanges(result.code_changes || []);
+        
+        // Update security issues
+        this.updateSecurityIssues(result.security_issues || []);
+        
+        // Update performance issues
+        this.updatePerformanceIssues(result.performance_issues || []);
+        
+        // Update next steps
+        this.updateNextSteps(result.next_steps || []);
+    }
+
+    updateAnalysisMetrics(analysis) {
+        const taskType = document.getElementById('task-type');
+        const mainLanguage = document.getElementById('main-language');
+        const complexity = document.getElementById('complexity');
+        const filesAnalyzed = document.getElementById('files-analyzed');
+        
+        if (taskType) taskType.textContent = analysis.task_type || '-';
+        if (mainLanguage) mainLanguage.textContent = analysis.main_language || '-';
+        if (complexity) complexity.textContent = analysis.complexity || '-';
+        if (filesAnalyzed) filesAnalyzed.textContent = analysis.files_analyzed || '-';
+    }
+
+    updateSummary(summary) {
+        const summaryElement = document.getElementById('ai-summary');
+        if (summaryElement) {
+            summaryElement.innerHTML = `<p>${summary}</p>`;
+        }
+    }
+
+    updateRecommendations(recommendations) {
+        const list = document.getElementById('recommendations-list');
+        const count = document.getElementById('recommendation-count');
+        
+        if (count) count.textContent = recommendations.length;
+        
+        if (list) {
+            list.innerHTML = recommendations.map(rec => `
+                <div class="recommendation-item">
+                    <i class="fas fa-lightbulb"></i>
+                    <div class="content">${rec}</div>
+                </div>
+            `).join('');
+        }
+    }
+
+    updateCodeChanges(changes) {
+        const list = document.getElementById('code-changes-list');
+        const count = document.getElementById('changes-count');
+        
+        if (count) count.textContent = changes.length;
+        
+        if (list) {
+            list.innerHTML = changes.map(change => `
+                <div class="code-change-item">
+                    <div class="code-change-header">
+                        <div class="code-change-info">
+                            <div class="code-change-file">${change.file}</div>
+                            <div class="code-change-description">${change.description}</div>
+                        </div>
+                        <div class="code-change-type ${change.type}">${change.type}</div>
+                    </div>
+                    ${change.code ? `
+                        <div class="code-change-content">
+                            <pre><code class="language-${this.getLanguageFromFile(change.file)}">${change.code}</code></pre>
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
+            
+            // Highlight code
+            if (window.Prism) {
+                Prism.highlightAll();
+            }
+        }
+    }
+
+    updateSecurityIssues(issues) {
+        const list = document.getElementById('security-issues-list');
+        const count = document.getElementById('security-count');
+        
+        if (count) count.textContent = issues.length;
+        
+        if (list) {
+            list.innerHTML = issues.length > 0 ? issues.map(issue => `
+                <div class="issue-item">
+                    <i class="fas fa-shield-alt"></i>
+                    <div class="content">${issue}</div>
+                </div>
+            `).join('') : '<p class="no-issues">No security issues found</p>';
+        }
+    }
+
+    updatePerformanceIssues(issues) {
+        const list = document.getElementById('performance-issues-list');
+        const count = document.getElementById('performance-count');
+        
+        if (count) count.textContent = issues.length;
+        
+        if (list) {
+            list.innerHTML = issues.length > 0 ? issues.map(issue => `
+                <div class="issue-item">
+                    <i class="fas fa-tachometer-alt"></i>
+                    <div class="content">${issue}</div>
+                </div>
+            `).join('') : '<p class="no-issues">No performance issues found</p>';
+        }
+    }
+
+    updateNextSteps(steps) {
+        const list = document.getElementById('next-steps-list');
+        
+        if (list) {
+            list.innerHTML = steps.map(step => `
+                <div class="step-item-result">
+                    <i class="fas fa-arrow-right"></i>
+                    <div class="content">${step}</div>
+                </div>
+            `).join('');
+        }
+    }
+
+    // File Explorer
+    setupFileExplorer() {
+        // File explorer setup is handled by event listeners
+    }
+
+    toggleFileExplorer() {
+        const modal = document.getElementById('file-explorer-modal');
+        if (modal) {
+            modal.classList.add('active');
+            this.loadFileExplorer();
+        }
+    }
+
+    closeFileExplorer() {
+        const modal = document.getElementById('file-explorer-modal');
+        if (modal) {
+            modal.classList.remove('active');
+        }
+    }
+
+    async loadFileExplorer() {
+        if (!this.sessionId) return;
+
+        try {
+            const response = await fetch(`/api/sessions/${this.sessionId}/files`);
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                this.renderFileTree(result.project_structure);
+            }
+        } catch (error) {
+            console.error('Error loading file explorer:', error);
+            this.showNotification('Failed to load file explorer', 'error');
+        }
+    }
+
+    renderFileTree(structure) {
+        const content = document.getElementById('file-explorer-content');
+        if (!content || !structure) return;
+
+        const files = structure.files || [];
+        
+        content.innerHTML = `
+            <div class="file-tree">
+                ${files.map(file => `
+                    <div class="file-tree-item" onclick="app.selectFile('${file.path}')">
+                        <i class="${this.getFileIcon(file.type)}"></i>
+                        <span class="file-name">${file.path}</span>
+                        <span class="file-size">${file.formatted_size}</span>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    async selectFile(filePath) {
+        if (!this.sessionId) return;
+
+        try {
+            const response = await fetch(`/api/sessions/${this.sessionId}/file/${encodeURIComponent(filePath)}`);
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                this.showFileContent(result);
+            }
+        } catch (error) {
+            console.error('Error loading file content:', error);
+            this.showNotification('Failed to load file content', 'error');
+        }
+    }
+
+    showFileContent(fileData) {
+        // This could open a modal or sidebar with file content
+        console.log('File content:', fileData);
+    }
+
+    searchFiles(query) {
+        const items = document.querySelectorAll('.file-tree-item');
+        
+        items.forEach(item => {
+            const fileName = item.querySelector('.file-name').textContent.toLowerCase();
+            const matches = fileName.includes(query.toLowerCase());
+            item.style.display = matches ? 'flex' : 'none';
+        });
+    }
+
+    setViewMode(mode) {
+        const listBtn = document.getElementById('list-view');
+        const gridBtn = document.getElementById('grid-view');
+        
+        if (mode === 'list') {
+            listBtn?.classList.add('active');
+            gridBtn?.classList.remove('active');
+        } else {
+            gridBtn?.classList.add('active');
+            listBtn?.classList.remove('active');
+        }
+        
+        // Update view (implementation depends on requirements)
+    }
+
+    // Utility Functions
+    getFileType(filename) {
+        const extension = filename.split('.').pop()?.toLowerCase();
+        
+        const codeExtensions = ['py', 'js', 'ts', 'jsx', 'tsx', 'html', 'css', 'java', 'cpp', 'c', 'php', 'rb', 'go', 'rs'];
+        const dataExtensions = ['json', 'xml', 'yaml', 'yml', 'csv', 'sql'];
+        const mediaExtensions = ['wav', 'mp3', 'mp4', 'mov', 'jpg', 'jpeg', 'png', 'gif'];
+        const archiveExtensions = ['zip', 'tar', 'gz', 'bz2', 'xz', '7z'];
+        
+        if (codeExtensions.includes(extension)) return 'code';
+        if (dataExtensions.includes(extension)) return 'data';
+        if (mediaExtensions.includes(extension)) return 'media';
+        if (archiveExtensions.includes(extension)) return 'archive';
+        
+        return 'other';
+    }
+
+    getFileIcon(type) {
+        const icons = {
+            code: 'fas fa-code',
+            data: 'fas fa-database',
+            media: 'fas fa-photo-video',
+            archive: 'fas fa-file-archive',
+            other: 'fas fa-file'
+        };
+        
+        return icons[type] || icons.other;
+    }
+
     getLanguageFromFile(filename) {
-        const extension = filename.split('.').pop().toLowerCase();
+        const extension = filename.split('.').pop()?.toLowerCase();
         const languageMap = {
             'py': 'python',
             'js': 'javascript',
+            'ts': 'typescript',
+            'jsx': 'jsx',
+            'tsx': 'tsx',
             'html': 'html',
             'css': 'css',
-            'json': 'json',
             'java': 'java',
             'cpp': 'cpp',
             'c': 'c',
             'php': 'php',
             'rb': 'ruby',
             'go': 'go',
-            'rs': 'rust'
+            'rs': 'rust',
+            'json': 'json',
+            'xml': 'xml',
+            'yaml': 'yaml',
+            'yml': 'yaml'
         };
         
         return languageMap[extension] || 'text';
     }
 
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
+        
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     }
 
+    // Navigation
+    goToStep(step) {
+        if (step < 1 || step > 3) return;
+        
+        // Hide all sections
+        document.querySelectorAll('.section').forEach(section => {
+            section.classList.remove('active');
+        });
+        
+        // Show target section
+        const targetSection = document.getElementById(`${this.getSectionName(step)}-section`);
+        if (targetSection) {
+            targetSection.classList.add('active');
+        }
+        
+        // Update step navigation
+        document.querySelectorAll('.step').forEach((stepEl, index) => {
+            stepEl.classList.remove('active', 'completed');
+            
+            if (index + 1 === step) {
+                stepEl.classList.add('active');
+            } else if (index + 1 < step) {
+                stepEl.classList.add('completed');
+            }
+        });
+        
+        // Update step connectors
+        document.querySelectorAll('.step-connector').forEach((connector, index) => {
+            connector.classList.toggle('active', index + 1 < step);
+        });
+        
+        this.currentStep = step;
+    }
+
+    getSectionName(step) {
+        const names = ['upload', 'task', 'results'];
+        return names[step - 1] || 'upload';
+    }
+
+    // Project Overview
+    updateProjectOverview(uploadResult) {
+        const overview = document.getElementById('project-overview');
+        if (!overview) return;
+
+        overview.style.display = 'block';
+
+        const structure = uploadResult.project_structure;
+        
+        // Update overview stats
+        const fileCount = document.getElementById('file-count');
+        const projectSize = document.getElementById('project-size');
+        const codeFilesCount = document.getElementById('code-files-count');
+        const mediaFilesCount = document.getElementById('media-files-count');
+        
+        if (fileCount) fileCount.textContent = structure.total_files || 0;
+        if (projectSize) projectSize.textContent = structure.formatted_size || '0 KB';
+        if (codeFilesCount) codeFilesCount.textContent = structure.code_files_count || 0;
+        if (mediaFilesCount) mediaFilesCount.textContent = structure.media_files_count || 0;
+        
+        // Update file types
+        this.updateFileTypes(structure.file_types || {});
+    }
+
+    updateFileTypes(fileTypes) {
+        const list = document.getElementById('file-types-list');
+        if (!list) return;
+
+        list.innerHTML = Object.entries(fileTypes)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 10)
+            .map(([ext, count]) => `
+                <div class="file-type-tag">
+                    ${ext}
+                    <span class="count">${count}</span>
+                </div>
+            `).join('');
+    }
+
+    updateHeaderStats() {
+        const headerStats = document.getElementById('header-stats');
+        const filesCount = document.getElementById('files-count');
+        const totalSize = document.getElementById('total-size');
+        const sessionTime = document.getElementById('session-time');
+        
+        if (headerStats && this.projectStructure) {
+            headerStats.style.display = 'flex';
+            
+            if (filesCount) {
+                filesCount.textContent = this.projectStructure.total_files || 0;
+            }
+            if (totalSize) {
+                totalSize.textContent = this.projectStructure.formatted_size || '0 KB';
+            }
+        }
+    }
+
+    // Session Timer
+    startSessionTimer() {
+        setInterval(() => {
+            const elapsed = Math.floor((Date.now() - this.sessionStartTime) / 1000);
+            const sessionTime = document.getElementById('session-time');
+            
+            if (sessionTime) {
+                const minutes = Math.floor(elapsed / 60);
+                const seconds = elapsed % 60;
+                sessionTime.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            }
+        }, 1000);
+    }
+
+    // Progress Animation
+    animateProgress(elementId, start, end, duration) {
+        const element = document.getElementById(elementId);
+        if (!element) return;
+
+        const startTime = Date.now();
+        
+        const animate = () => {
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            const current = start + (end - start) * progress;
+            
+            element.style.width = `${current}%`;
+            
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            }
+        };
+        
+        animate();
+    }
+
+    // Loading States
+    showLoading(message = 'Loading...') {
+        const overlay = document.getElementById('loading-overlay');
+        const messageEl = document.getElementById('loading-message');
+        
+        if (overlay) {
+            overlay.classList.add('active');
+        }
+        if (messageEl) {
+            messageEl.textContent = message;
+        }
+    }
+
+    hideLoading() {
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) {
+            overlay.classList.remove('active');
+        }
+    }
+
+    // Notification System
+    setupNotificationSystem() {
+        // Notification system is ready
+    }
+
+    showNotification(message, type = 'info', duration = this.notificationTimeout) {
+        const container = document.getElementById('notification-container');
+        if (!container) return;
+
+        const notification = document.createElement('div');
+        notification.className = `notification ${type}`;
+        
+        const icons = {
+            success: 'fas fa-check',
+            error: 'fas fa-exclamation-triangle',
+            warning: 'fas fa-exclamation-circle',
+            info: 'fas fa-info-circle'
+        };
+        
+        notification.innerHTML = `
+            <div class="notification-icon">
+                <i class="${icons[type] || icons.info}"></i>
+            </div>
+            <div class="notification-content">
+                <div class="notification-message">${message}</div>
+            </div>
+            <button class="notification-close" onclick="this.parentElement.remove()">
+                <i class="fas fa-times"></i>
+            </button>
+        `;
+        
+        container.appendChild(notification);
+        
+        // Auto remove
+        if (duration > 0) {
+            setTimeout(() => {
+                if (notification.parentElement) {
+                    notification.remove();
+                }
+            }, duration);
+        }
+    }
+
+    // API Health Check
+    async checkAPIHealth() {
+        try {
+            const response = await fetch('/api/health');
+            const result = await response.json();
+            
+            if (result.status === 'healthy') {
+                console.log('API is healthy:', result);
+            } else {
+                this.showNotification('API health check failed', 'warning');
+            }
+        } catch (error) {
+            console.error('Health check failed:', error);
+            this.showNotification('Unable to connect to API', 'error');
+        }
+    }
+
+    // Downloads
     async downloadResults() {
         if (!this.sessionId) {
-            this.showMessage('No session to download.', 'error');
+            this.showNotification('No session to download', 'warning');
             return;
         }
 
@@ -348,103 +1035,143 @@ class ManusApp {
                 document.body.removeChild(a);
                 window.URL.revokeObjectURL(url);
                 
-                this.showMessage('Results downloaded successfully!', 'success');
+                this.showNotification('Results downloaded successfully', 'success');
             } else {
                 throw new Error('Download failed');
             }
         } catch (error) {
             console.error('Download error:', error);
-            this.showMessage(`Download failed: ${error.message}`, 'error');
+            this.showNotification('Download failed', 'error');
         }
     }
 
-    startNewTask() {
-        // Reset the application state
-        this.currentStep = 1;
+    exportResults() {
+        if (!this.analysisResult) {
+            this.showNotification('No results to export', 'warning');
+            return;
+        }
+
+        const data = JSON.stringify(this.analysisResult, null, 2);
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `manus_analysis_${Date.now()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        this.showNotification('Results exported successfully', 'success');
+    }
+
+    // New Analysis
+    startNewAnalysis() {
+        // Reset state
         this.sessionId = null;
-        this.selectedFiles = [];
+        this.uploadedFiles = [];
         this.projectStructure = null;
+        this.analysisResult = null;
+        this.sessionStartTime = Date.now();
         
         // Reset UI
-        document.getElementById('file-list').style.display = 'none';
-        document.getElementById('upload-btn').style.display = 'none';
-        document.getElementById('project-overview').style.display = 'none';
-        document.getElementById('results-content').style.display = 'none';
         document.getElementById('task-description').value = '';
         document.getElementById('file-input').value = '';
+        this.updateFileList();
+        this.updateUploadButton();
         
-        // Clear any messages
-        const existingMessages = document.querySelectorAll('.message');
-        existingMessages.forEach(msg => msg.remove());
+        // Hide sections
+        document.getElementById('project-overview').style.display = 'none';
+        document.getElementById('results-content').style.display = 'none';
+        document.getElementById('header-stats').style.display = 'none';
         
+        // Go to first step
         this.goToStep(1);
-        this.showMessage('Ready for a new task!', 'success');
-    }
-
-    goToStep(step) {
-        // Hide all sections
-        document.querySelectorAll('.section').forEach(section => {
-            section.classList.remove('active');
-        });
         
-        // Show target section
-        document.getElementById(`${this.getSectionName(step)}-section`).classList.add('active');
-        
-        this.currentStep = step;
-        this.updateStepNavigation();
+        this.showNotification('Ready for new analysis', 'info');
     }
 
-    getSectionName(step) {
-        const names = ['', 'upload', 'task', 'results'];
-        return names[step];
-    }
-
-    updateStepNavigation() {
-        document.querySelectorAll('.step').forEach((step, index) => {
-            const stepNumber = index + 1;
-            step.classList.remove('active', 'completed');
+    // Keyboard Shortcuts
+    handleKeyboardShortcuts(e) {
+        // Ctrl/Cmd + Enter to proceed to next step
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
             
-            if (stepNumber === this.currentStep) {
-                step.classList.add('active');
-            } else if (stepNumber < this.currentStep) {
-                step.classList.add('completed');
+            if (this.currentStep === 1 && this.uploadedFiles.length > 0) {
+                this.uploadFiles();
+            } else if (this.currentStep === 2 && document.getElementById('task-description').value) {
+                this.startAnalysis();
             }
-        });
-    }
-
-    showMessage(text, type = 'info') {
-        // Remove existing messages
-        const existingMessages = document.querySelectorAll('.message');
-        existingMessages.forEach(msg => msg.remove());
+        }
         
-        // Create new message
-        const message = document.createElement('div');
-        message.className = `message ${type}`;
-        message.textContent = text;
-        
-        // Insert at the top of the current section
-        const currentSection = document.querySelector('.section.active');
-        currentSection.insertBefore(message, currentSection.firstChild);
-        
-        // Auto-remove after 5 seconds for success messages
-        if (type === 'success') {
-            setTimeout(() => {
-                if (message.parentNode) {
-                    message.remove();
-                }
-            }, 5000);
+        // Escape to close modals
+        if (e.key === 'Escape') {
+            this.closeFileExplorer();
         }
     }
 }
 
-// Global functions for template usage
-window.setTaskExample = function(example) {
-    document.getElementById('task-description').value = example;
-    manusApp.validateTaskForm();
-};
+// Task Examples
+function setTaskExample(text) {
+    const textarea = document.getElementById('task-description');
+    if (textarea) {
+        textarea.value = text;
+        textarea.dispatchEvent(new Event('input'));
+        textarea.focus();
+    }
+}
 
-// Initialize the app when DOM is loaded
-document.addEventListener('DOMContentLoaded', function() {
-    window.manusApp = new ManusApp();
+// Footer Functions
+function showHelp() {
+    app.showNotification('Help documentation coming soon!', 'info');
+}
+
+function showDocumentation() {
+    app.showNotification('Documentation available on GitHub', 'info');
+}
+
+function reportIssue() {
+    app.showNotification('Please report issues on our GitHub repository', 'info');
+}
+
+function showPrivacy() {
+    app.showNotification('Privacy policy coming soon', 'info');
+}
+
+function showTerms() {
+    app.showNotification('Terms of service coming soon', 'info');
+}
+
+function showStatus() {
+    app.checkAPIHealth();
+}
+
+// Initialize app when DOM is loaded
+let app;
+
+document.addEventListener('DOMContentLoaded', () => {
+    app = new ManusApp();
+    console.log('Manus AI Platform initialized');
 });
+
+// Global error handler
+window.addEventListener('error', (e) => {
+    console.error('Global error:', e.error);
+    if (app) {
+        app.showNotification('An unexpected error occurred', 'error');
+    }
+});
+
+// Service worker registration (for future PWA features)
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+            .then(registration => {
+                console.log('SW registered: ', registration);
+            })
+            .catch(registrationError => {
+                console.log('SW registration failed: ', registrationError);
+            });
+    });
+}
 

@@ -14,27 +14,28 @@
 2025-06-12 04:03:28,726 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 04:03:28] "GET /static/css/manus_style.css HTTP/1.1" 200 -
 2025-06-12 04:03:28,922 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 04:03:28] "GET /static/js/manus_app.js HTTP/1.1" 200 -
 2025-06-12 04:03:28,972 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 04:03:28] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
-2025-06-12 06:51:13,440 - __main__ - INFO - Starting Manus Platform
-2025-06-12 06:51:13,720 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+2025-06-13 07:09:47,918 - werkzeug - INFO -  * Detected change in '/home/ubuntu/manus-platform/app.py', reloading
+2025-06-13 07:09:47,959 - werkzeug - INFO -  * Restarting with stat
+2025-06-13 07:18:28,874 - root - INFO - setup_production_environment:39 - Production environment setup completed
+2025-06-13 07:18:28,874 - root - INFO - setup_production_environment:42 - Host: 0.0.0.0
+2025-06-13 07:18:28,874 - root - INFO - setup_production_environment:43 - Port: 5001
+2025-06-13 07:18:28,874 - root - INFO - setup_production_environment:44 - Debug: False
+2025-06-13 07:18:28,874 - root - INFO - setup_production_environment:45 - Max upload size: 500MB
+2025-06-13 07:18:28,874 - root - INFO - setup_production_environment:46 - OpenAI configured: True
+2025-06-13 07:18:28,885 - openai_service - INFO - _initialize_client:30 - OpenAI client initialized successfully
+2025-06-13 07:18:28,885 - root - INFO - start_cleanup_thread:124 - Started session cleanup thread
+2025-06-13 07:18:28,890 - root - INFO - <module>:596 - Manus AI Platform initialized for production
+2025-06-13 07:18:28,890 - root - INFO - main:84 - Flask application imported successfully
+2025-06-13 07:18:28,890 - root - INFO - main:92 - Running in development mode
+2025-06-13 07:18:28,893 - werkzeug - INFO - _log:187 - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
  * Running on all addresses (0.0.0.0)
  * Running on http://127.0.0.1:5001
- * Running on http://10.2.0.2:5001
-2025-06-12 06:51:13,721 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
-2025-06-12 06:51:13,724 - werkzeug - INFO -  * Restarting with stat
-2025-06-12 06:51:14,626 - __main__ - INFO - Starting Manus Platform
-2025-06-12 06:51:14,658 - werkzeug - WARNING -  * Debugger is active!
-2025-06-12 06:51:14,712 - werkzeug - INFO -  * Debugger PIN: 129-437-201
-2025-06-12 06:52:19,555 - __main__ - INFO - Home page accessed
-2025-06-12 06:52:19,791 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 06:52:19] "GET / HTTP/1.1" 200 -
-2025-06-12 06:52:21,297 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 06:52:21] "GET /static/css/manus_style.css HTTP/1.1" 200 -
-2025-06-12 06:52:22,170 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 06:52:22] "GET /static/js/manus_app.js HTTP/1.1" 200 -
-2025-06-12 06:52:26,009 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 06:52:26] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
-2025-06-12 06:56:12,300 - __main__ - INFO - Upload endpoint accessed
-2025-06-12 06:56:12,961 - __main__ - INFO - Upload completed in 0.66 seconds
-2025-06-12 06:56:12,990 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 06:56:12] "POST /api/upload HTTP/1.1" 200 -
-2025-06-12 06:57:11,207 - __main__ - INFO - Process endpoint accessed
-2025-06-12 06:57:11,208 - __main__ - INFO - Processing task for session 8cf9d259-14d9-4b31-ba1a-5bb157210464: Check for any bugs
-2025-06-12 06:57:11,260 - __main__ - INFO - Simulating AI processing for task: Check for any bugs
-2025-06-12 06:57:11,267 - __main__ - INFO - Processing completed in 0.06 seconds
-2025-06-12 06:57:11,274 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 06:57:11] "POST /api/process HTTP/1.1" 200 -
-2025-06-12 06:57:36,477 - werkzeug - INFO - 127.0.0.1 - - [12/Jun/2025 06:57:36] "GET /api/download/8cf9d259-14d9-4b31-ba1a-5bb157210464 HTTP/1.1" 200 -
+ * Running on http://169.254.0.21:5001
+2025-06-13 07:18:28,893 - werkzeug - INFO - _log:187 - [33mPress CTRL+C to quit[0m
+2025-06-13 07:19:07,020 - werkzeug - INFO - _log:187 - 127.0.0.1 - - [13/Jun/2025 07:19:07] "GET /api/health HTTP/1.1" 200 -
+2025-06-13 07:19:11,296 - root - INFO - home:163 - Home page accessed
+2025-06-13 07:19:11,304 - werkzeug - INFO - _log:187 - 127.0.0.1 - - [13/Jun/2025 07:19:11] "GET / HTTP/1.1" 200 -
+2025-06-13 07:19:11,324 - werkzeug - INFO - _log:187 - 127.0.0.1 - - [13/Jun/2025 07:19:11] "GET /static/css/manus_style.css HTTP/1.1" 200 -
+2025-06-13 07:19:11,326 - werkzeug - INFO - _log:187 - 127.0.0.1 - - [13/Jun/2025 07:19:11] "GET /static/js/manus_app.js HTTP/1.1" 200 -
+2025-06-13 07:19:11,401 - werkzeug - INFO - _log:187 - 127.0.0.1 - - [13/Jun/2025 07:19:11] "GET /api/health HTTP/1.1" 200 -
+2025-06-13 07:19:11,638 - werkzeug - INFO - _log:187 - 127.0.0.1 - - [13/Jun/2025 07:19:11] "[33mGET /sw.js HTTP/1.1[0m" 404 -

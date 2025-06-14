@@ -1,5 +1,9 @@
-Flask==2.3.3
-Flask-CORS==4.0.0
-Werkzeug==2.3.7
-openai==1.23.2
+gunicorn==21.2.0
+flask==2.3.3
+flask-cors==4.0.0
+werkzeug==2.3.7
+openai==0.28.1
+python-dotenv==1.0.0
+redis==5.0.1
+celery==5.3.4
 
